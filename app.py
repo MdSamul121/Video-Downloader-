@@ -5,7 +5,6 @@ import requests
 
 app = Flask(__name__)
 
-# ইউজার ইন্টারফেস (HTML) - কোয়ালিটি অপশন যুক্ত করা হয়েছে
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -19,14 +18,15 @@ HTML_TEMPLATE = """
         input[type="text"], select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
         button { width: 100%; padding: 12px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; }
         button:hover { background-color: #0056b3; }
-        .footer { margin-top: 20px; font-size: 12px; color: #777; }
+        .footer { margin-top: 20px; font-size: 13px; color: #555; }
+        .note { color: #d9534f; font-weight: bold; margin-top: 10px; font-size: 14px;}
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>ভিডিও ডাউনলোডার (No-Save)</h2>
+        <h2>ভিডিও ডাউনলোডার (Live Progress)</h2>
         <form action="/download" method="post">
-            <input type="text" name="url" placeholder="ভিডিওর লিংক দিন (e.g. YouTube, FB...)" required>
+            <input type="text" name="url" placeholder="ভিডিওর লিংক দিন..." required>
             <select name="quality">
                 <option value="best">Best Quality (সেরা মান)</option>
                 <option value="720">720p (HD)</option>
@@ -35,6 +35,7 @@ HTML_TEMPLATE = """
             </select>
             <button type="submit">ডাউনলোড শুরু করুন</button>
         </form>
+        <div class="note">ডাউনলোড শুরু হলে ব্রাউজারের ডাউনলোড সেকশনে প্রোগ্রেস দেখতে পাবেন।</div>
         <div class="footer">সার্ভারে কোনো ফাইল সেভ হয় না, সরাসরি ব্রাউজারে পাঠানো হয়।</div>
     </div>
 </body>
@@ -53,7 +54,6 @@ def download():
     if not url:
         return "URL missing", 400
 
-    # কোয়ালিটি অনুযায়ী yt-dlp ফরম্যাট নির্ধারণ
     format_selector = 'best'
     if quality == '720':
         format_selector = 'best[height<=720]'
@@ -70,28 +70,38 @@ def download():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # ভিডিওর আসল ডাউনলোড লিংক এবং তথ্য সংগ্রহ করা
+            # ভিডিওর আসল লিংক এবং ইনফরমেশন বের করা হচ্ছে
             info = ydl.extract_info(url, download=False)
             video_url = info.get('url')
             title = info.get('title', 'video')
             ext = info.get('ext', 'mp4')
             filename = f"{title}.{ext}"
 
-        # সরাসরি ভিডিও সোর্স থেকে স্ট্রিমিং করার ফাংশন
-        def generate():
-            # রিকোয়েস্ট ছোট ছোট চাঙ্কে (1MB করে) ভিডিওটি নিয়ে আসবে
-            with requests.get(video_url, stream=True) as r:
-                for chunk in r.iter_content(chunk_size=1024*1024):
-                    if chunk:
-                        yield chunk
+        # আসল ভিডিও সার্ভারে রিকোয়েস্ট পাঠানো হচ্ছে (কিন্তু পুরোটা ডাউনলোড না করে শুধু স্ট্রীম ওপেন করা হচ্ছে)
+        r = requests.get(video_url, stream=True)
+        
+        # ভিডিওর মোট সাইজ (Total Size) বের করা হচ্ছে
+        file_size = r.headers.get('Content-Length')
 
-        # ব্রাউজারকে জানানো হচ্ছে এটি একটি ডাউনলোডযোগ্য ফাইল
+        def generate():
+            # ১ মেগাবাইট করে চাঙ্ক পাঠানো হচ্ছে
+            for chunk in r.iter_content(chunk_size=1024*1024):
+                if chunk:
+                    yield chunk
+
+        # রেসপন্স হেডার সেট করা হচ্ছে
+        headers = {
+            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Type": "application/octet-stream"
+        }
+        
+        # যদি ফাইলের সাইজ পাওয়া যায়, তবে ব্রাউজারকে জানিয়ে দেওয়া হচ্ছে (যাতে সে প্রোগ্রেস বার দেখাতে পারে)
+        if file_size:
+            headers["Content-Length"] = file_size
+
         return Response(
             stream_with_context(generate()),
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}",
-                "Content-Type": "application/octet-stream"
-            }
+            headers=headers
         )
 
     except Exception as e:
@@ -100,3 +110,4 @@ def download():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+    
