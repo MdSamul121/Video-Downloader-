@@ -5,6 +5,7 @@ import requests
 
 app = Flask(__name__)
 
+# ইউজার ইন্টারফেস (HTML)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="bn">
@@ -54,13 +55,14 @@ def download():
     if not url:
         return "URL missing", 400
 
+    # Fallback যুক্ত করা হয়েছে যাতে নির্দিষ্ট কোয়ালিটি না পেলে ক্র্যাশ না করে best কোয়ালিটি দেয়
     format_selector = 'best'
     if quality == '720':
-        format_selector = 'best[height<=720]'
+        format_selector = 'best[height<=720]/best'
     elif quality == '480':
-        format_selector = 'best[height<=480]'
+        format_selector = 'best[height<=480]/best'
     elif quality == '360':
-        format_selector = 'best[height<=360]'
+        format_selector = 'best[height<=360]/best'
 
     ydl_opts = {
         'format': format_selector,
@@ -70,32 +72,32 @@ def download():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # ভিডিওর আসল লিংক এবং ইনফরমেশন বের করা হচ্ছে
+            # ভিডিওর আসল লিংক এবং ইনফরমেশন বের করা হচ্ছে (কিন্তু সার্ভারে ডাউনলোড করা হচ্ছে না)
             info = ydl.extract_info(url, download=False)
             video_url = info.get('url')
             title = info.get('title', 'video')
             ext = info.get('ext', 'mp4')
             filename = f"{title}.{ext}"
 
-        # আসল ভিডিও সার্ভারে রিকোয়েস্ট পাঠানো হচ্ছে (কিন্তু পুরোটা ডাউনলোড না করে শুধু স্ট্রীম ওপেন করা হচ্ছে)
+        # আসল ভিডিও সার্ভারে রিকোয়েস্ট পাঠানো হচ্ছে
         r = requests.get(video_url, stream=True)
         
-        # ভিডিওর মোট সাইজ (Total Size) বের করা হচ্ছে
+        # ভিডিওর মোট সাইজ (Total Size) বের করা হচ্ছে প্রোগ্রেস বারের জন্য
         file_size = r.headers.get('Content-Length')
 
         def generate():
-            # ১ মেগাবাইট করে চাঙ্ক পাঠানো হচ্ছে
+            # ১ মেগাবাইট করে চাঙ্ক পাঠানো হচ্ছে মেমোরি বাঁচানোর জন্য
             for chunk in r.iter_content(chunk_size=1024*1024):
                 if chunk:
                     yield chunk
 
         # রেসপন্স হেডার সেট করা হচ্ছে
         headers = {
-            "Content-Disposition": f"attachment; filename={filename}",
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
             "Content-Type": "application/octet-stream"
         }
         
-        # যদি ফাইলের সাইজ পাওয়া যায়, তবে ব্রাউজারকে জানিয়ে দেওয়া হচ্ছে (যাতে সে প্রোগ্রেস বার দেখাতে পারে)
+        # যদি ফাইলের সাইজ পাওয়া যায়, তবে ব্রাউজারকে জানিয়ে দেওয়া হচ্ছে
         if file_size:
             headers["Content-Length"] = file_size
 
@@ -105,9 +107,9 @@ def download():
         )
 
     except Exception as e:
-        return f"Error: {str(e)}", 500
+        return f"<h3>ডাউনলোড করার সময় এরর হয়েছে:</h3><p>{str(e)}</p><a href='/'>ফিরে যান</a>", 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-    
+        
